@@ -1,6 +1,30 @@
 # HandsOnTransformers
 attention is all you need!
 
+This repo is created as a playground for practicing transformer implementations. Topics to cover:
+1. - [x] self attention
+2. - [x] multihead attention
+3. - [x] cross attention
+4. multi query attention
+5. multi latent attention
+6. decoder
+7. encoder
+8. positional encoding
+9. tokenization
+10. normalization
+11. masked transformers
+12. sequence-prediction task
+13. classification task
+14. regression task
+15. transformers for RL
+16. DPO
+17. MoE
+18. other applications?
+19. acceleration techniques
+20. KV cache
+
+
+
 
 ### 1. SelfAttention Module
 
@@ -69,5 +93,50 @@ class MultiHeadAttention(nn.Module):
         mha_out = self.o(attn_out)
         return mha_out
 
+```
+
+### 3. Cross-Attention
+
+```python3
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class CrossMultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_head):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head = n_head
+        assert self.d_model % self.n_head == 0
+        self.head_dim = self.d_model // self.n_head
+
+        self.q = nn.Linear(d_model, d_model)
+        self.k = nn.Linear(d_model, d_model)
+        self.v = nn.Linear(d_model, d_model)
+        self.o = nn.Linear(d_model, d_model)
+
+    def forward(self, query, key):
+        batch_size_q, seq_len_q, _ = query.shape
+        batch_size_k, seq_len_k, _ = key.shape
+        assert batch_size_q == batch_size_k
+
+        q = self.q(query) # batch_size, seq_len, d_model
+        k = self.k(key)
+        v = self.v(key)
+
+        q = q.view(batch_size_q, seq_len_q, self.n_head, self.head_dim).transpose(1,2) # shape = batch_size_q, self.n_head, seq_len_q, self.head_dim
+        k = k.view(batch_size_k, seq_len_k, self.n_head, self.head_dim).transpose(1,2)
+        v = v.view(batch_size_k, seq_len_k, self.n_head, self.head_dim).transpose(1,2)
+
+        x_attn_w = F.softmax(
+                torch.matmul(q, k.transpose(-2, -1)) /
+                torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+                , dim = -1) # shape = batch_size, self.n_head, seq_len_q, seq_len_k
+        x_attn_out = torch.matmul(x_attn_w, v) 
+        x_attn_out = x_attn_out.transpose(1,2).contiguous().view(batch_size_q, seq_len_q, self.d_model)
+
+        x_out = self.o(x_attn_out)
+        return x_out
+        
 ```
 
