@@ -5,14 +5,14 @@ This repo is created as a playground for practicing transformer implementations.
 1. - [x] self attention
 2. - [x] multihead attention
 3. - [x] cross attention
-4. multi query attention
-5. multi latent attention
-6. decoder
-7. encoder
-8. positional encoding
-9. tokenization
-10. normalization
-11. masked transformers
+4. - [ ] masked attention
+5. multi query attention
+6. multi latent attention
+7. decoder
+8. encoder
+9. positional encoding
+10. tokenization
+11. normalization
 12. sequence-prediction task
 13. classification task
 14. regression task
@@ -140,3 +140,28 @@ class CrossMultiHeadAttention(nn.Module):
         
 ```
 
+### 4. Adding Causal Masks
+
+bug here: in-place op will destroy the computational graph
+.detach(), .data, +=1 (and other in-place op) will destroy the computational graph.
+So, we should use out-of-place op like masked_fill rather than masked_fill_ when we need to track the gradient of attn_scores
+
+```python3
+def generate_causal_mask(self, attn_scores, seq_len):
+    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal = 1).bool().unsqueeze(0).unsqueeze(0)
+    attn_scores = attn_scores.masked_fill(mask, float('-inf'))
+    return attn_scores
+
+attn_scores = torch.matmul(q, k.transpose(-2,-1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+attn_scores = self.generate_causal_mask(attn_scores, seq_len)
+attn_w = F.softmax(attn_scores, dim=-1)
+
+
+# more efficient implementation:
+seq_len = attn_scores.shape[-1]
+mask = torch.triu(torch.ones(seq_len, seq_len), diagonal = 1).bool()
+attn_scores = torch.matmul(q, k.transpose(-2,-1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+attn_scores = attn_scores.masked_fill(mask.unsqueeze(0).unsqueeze(0), float('-inf'))
+attn_w = F.softmax(attn_scores, dim=-1)
+
+```
