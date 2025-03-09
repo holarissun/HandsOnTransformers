@@ -5,8 +5,8 @@ This repo is created as a playground for practicing transformer implementations.
 1. - [x] self attention
 2. - [x] multihead attention
 3. - [x] cross attention
-4. - [ ] masked attention
-5. multi query attention
+4. - [x] masked attention
+5. - [x] multi query attention
 6. multi latent attention
 7. decoder
 8. encoder
@@ -142,9 +142,9 @@ class CrossMultiHeadAttention(nn.Module):
 
 ### 4. Adding Causal Masks
 
-bug here: in-place op will destroy the computational graph
-.detach(), .data, +=1 (and other in-place op) will destroy the computational graph.
-So, we should use out-of-place op like masked_fill rather than masked_fill_ when we need to track the gradient of attn_scores
+- bug here: in-place op will destroy the computational graph
+- .detach(), .data, +=1 (and other in-place op) will destroy the computational graph.
+- So, we should use out-of-place op like masked_fill rather than masked_fill_ when we need to track the gradient of attn_scores
 
 ```python3
 def generate_causal_mask(self, attn_scores, seq_len):
@@ -163,5 +163,57 @@ mask = torch.triu(torch.ones(seq_len, seq_len), diagonal = 1).bool()
 attn_scores = torch.matmul(q, k.transpose(-2,-1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
 attn_scores = attn_scores.masked_fill(mask.unsqueeze(0).unsqueeze(0), float('-inf'))
 attn_w = F.softmax(attn_scores, dim=-1)
+
+```
+
+
+
+### 5. Multi Query Attention
+
+- Why multi-query attention?
+- In inference time, MHA is not efficient and is computationally expensive (need multiple Key / Value heads)
+- Solution of MQA: only having 1 kv_head, and n_head query
+
+```python3
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MultiQueryAttention(nn.Module):
+    def __init__(self, d_model, n_head, causal_transformers = True):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head = n_head
+        self.causal_transformers = causal_transformers
+        assert self.d_model % self.n_head == 0
+        self.head_dim = self.d_model // self.n_head
+        self.q = nn.Linear(d_model, d_model)
+        self.k = nn.Linear(d_model, self.head_dim)
+        self.v = nn.Linear(d_model, self.head_dim)
+        self.o = nn.Linear(d_model, d_model)
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.shape
+        q = self.q(x)
+        k = self.k(x)
+        v = self.v(x)
+
+        q = q.view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1,2)
+        k = k.view(batch_size, seq_len, 1, self.head_dim).transpose(1,2).expand(-1,self.n_head, -1, -1)
+        v = v.view(batch_size, seq_len, 1, self.head_dim).transpose(1,2).expand(-1,self.n_head, -1, -1)
+
+        attn_score = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+
+        if self.causal_transformers:
+            mask = torch.triu(torch.ones(seq_len, seq_len), diagonal = 1).bool().view(1,1,seq_len, seq_len)
+            attn_score = attn_score.masked_fill(mask, float('-inf'))
+
+        attn_w = F.softmax(attn_score, dim=-1)
+        attn_out = torch.matmul(attn_w, v) # batch_size, n_head, seq_len, head_dim
+
+        attn_out = attn_out.transpose(1,2).contiguous().view(batch_size, seq_len, self.d_model)
+
+        output = self.o(attn_out)
+        return output
 
 ```
