@@ -8,8 +8,8 @@ This repo is created as a playground for practicing transformer implementations.
 4. - [x] masked attention
 5. - [x] multi query attention
 6. multi latent attention
-7. decoder
-8. encoder
+7. - [ ] decoder
+8. - [ ] encoder
 9. positional encoding
 10. tokenization
 11. normalization
@@ -217,3 +217,7 @@ class MultiQueryAttention(nn.Module):
         return output
 
 ```
+
+
+
+### 6. 
