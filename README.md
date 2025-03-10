@@ -8,8 +8,8 @@ This repo is created as a playground for practicing transformer implementations.
 4. - [x] masked attention
 5. - [x] multi query attention
 6. multi latent attention
-7. - [ ] decoder
-8. - [ ] encoder
+7. - [x] encoder
+8. - [ ] decoder
 9. positional encoding
 10. tokenization
 11. normalization
@@ -220,4 +220,115 @@ class MultiQueryAttention(nn.Module):
 
 
 
-### 6. 
+### 6. Multi Latent Attention 
+
+### 7. Transformer Encoder Layer
+Key components of encoder layers:
+- self-attention
+- feed-forward network
+- residual connection and layer-normalization
+
+#### 7.1 No mask version... 
+
+```python3
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class EncoderLayer(nn.Module):
+    def __init__(self, d_model, n_head, ff_dim, dropout = 0.1):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, n_head)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, ff_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_dim, d_model)
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+    def forward(self, x):
+        attn_output = self.self_attn(x)
+        x = self.norm1(x + self.dropout1(attn_output))
+
+        ffn_output = self.ffn(x)
+        x = self.norm2(x + self.dropout2(ffn_output))
+        return x
+
+```
+
+#### 7.2 masked version
+
+```python3
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class EncoderLayer(nn.Module):
+    def __init__(self, d_model, n_head, ff_dim, dropout = 0.1):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, n_head)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, ff_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_dim, d_model)
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+    def forward(self, x, src_mask = None):
+        attn_output = self.self_attn(x, mask = src_mask)
+        x = self.norm1(x + self.dropout1(attn_output))
+
+        ffn_output = self.ffn(x)
+        x = self.norm2(x + self.dropout2(ffn_output))
+        return x
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_head):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head = n_head
+        assert self.d_model % self.n_head == 0
+        self.head_dim = self.d_model // self.n_head
+        self.q = nn.Linear(self.d_model, self.d_model)
+        self.k = nn.Linear(self.d_model, self.d_model)
+        self.v = nn.Linear(self.d_model, self.d_model)
+        self.o = nn.Linear(self.d_model, self.d_model)
+
+    def forward(self, x, mask = None):
+        batch_size, seq_len, _ = x.shape
+        q = self.q(x) # batch_size, seq_len, d_model
+        k = self.k(x)
+        v = self.v(x)
+
+        q = q.view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1,2)
+        k = k.view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1,2)
+        v = v.view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1,2)
+
+
+        mha_score = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+        if mask is not None:
+            mha_score = mha_score.masked_fill(mask, float('-inf')) #
+        mha_w = F.softmax(mha_score, dim = -1) # batch_size, self.n_head, seq_len, seq_len
+
+        attn_out = torch.matmul(mha_w, v) # batch_size, self.n_head, seq_len, self.head_dim
+        attn_out = attn_out.transpose(1,2).contiguous().view(batch_size, seq_len, self.d_model)
+
+        mha_out = self.o(attn_out)
+        return mha_out
+
+```
+
+### 8. Transformer Decoder Layer
+
+
+
+
