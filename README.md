@@ -7,21 +7,24 @@ This repo is created as a playground for practicing transformer implementations.
 3. - [x] cross attention
 4. - [x] masked attention
 5. - [x] multi query attention
-6. multi latent attention
+6. group query, multi head latent attention
 7. - [x] encoder
-8. - [ ] decoder
-9. positional encoding
-10. tokenization
-11. normalization
-12. sequence-prediction task
-13. classification task
-14. regression task
-15. transformers for RL
-16. DPO
-17. MoE
-18. other applications?
-19. acceleration techniques
-20. KV cache
+8. - [x] decoder
+9. decoder-only models
+10. encoder-only models
+11. encoder-decoder models
+12. positional encoding
+13. tokenization
+14. normalization
+15. sequence-prediction task
+16. classification task
+17. regression task
+18. transformers for RL
+19. DPO
+20. MoE
+21. other applications?
+22. acceleration techniques
+23. KV cache
 
 
 
@@ -316,7 +319,7 @@ class MultiHeadAttention(nn.Module):
 
         mha_score = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
         if mask is not None:
-            mha_score = mha_score.masked_fill(mask, float('-inf')) #
+            mha_score = mha_score.masked_fill(mask, float('-inf')) # may need to use mask == 0 instead of mask for e.g., padding masks.
         mha_w = F.softmax(mha_score, dim = -1) # batch_size, self.n_head, seq_len, seq_len
 
         attn_out = torch.matmul(mha_w, v) # batch_size, self.n_head, seq_len, self.head_dim
@@ -329,6 +332,30 @@ class MultiHeadAttention(nn.Module):
 
 ### 8. Transformer Decoder Layer
 
+```python3
+class DecoderLayer(nn.Module):
+    def __init__(self, d_model, n_head, ff_dim, dropout = 0.1):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, n_head)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, ff_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_dim, d_model)
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
 
+    def forward(self, x, mask = None):
+        attn_out = self.self_attn(x, mask = mask)
+        x = self.norm1(x + self.dropout1(attn_out))
+
+        ffn_out = self.ffn(x)
+        x = self.norm2(x + self.dropout2(ffn_out))
+        return x
+
+```
 
 
