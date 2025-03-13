@@ -7,24 +7,25 @@ This repo is created as a playground for practicing transformer implementations.
 3. - [x] cross attention
 4. - [x] masked attention
 5. - [x] multi query attention
-6. group query, multi head latent attention
-7. - [x] encoder
-8. - [x] decoder
-9. decoder-only models
-10. encoder-only models
-11. encoder-decoder models
-12. positional encoding
-13. tokenization
-14. normalization
-15. sequence-prediction task
-16. classification task
-17. regression task
-18. transformers for RL
-19. DPO
-20. MoE
-21. other applications?
-22. acceleration techniques
-23. KV cache
+6. - [ ] group query attention
+7. multi head latent attention
+8. - [x] encoder
+9. - [x] decoder
+10. decoder-only models
+11. encoder-only models
+12. encoder-decoder models
+13. positional encoding
+14. tokenization
+15. normalization
+16. sequence-prediction task
+17. classification task
+18. regression task
+19. transformers for RL
+20. DPO
+21. MoE
+22. other applications?
+23. acceleration techniques
+24. KV cache
 
 
 
@@ -223,7 +224,66 @@ class MultiQueryAttention(nn.Module):
 
 
 
-### 6. Multi Latent Attention 
+### 6. Grouped Query Attention 
+
+#### very tricky step in the view / expand step between groups. Should be super careful!
+- The shape of k starts with self.k(x).shape = batch_size, seq_len, n_kv_heads(n_group) * head_dim
+- to reshape it and expand the dimension, there are two choices:
+  1. view(batch_size, seq_len, n_kv_heads, 1, head_dim)
+  2. view(batch_size, seq_len, 1, n_kv_heads, head_dim)
+- 1 is correct, and 2 seems to be wrong. This is because if we do (1).expand(-1, -1, -1, q_per_kv, -1).view(batch_size, seq_len, n_heads, head_dim), each group get repeated (expanded) for q_per_kv times
+- but if we use 2, each group will be repeated together, and the results seem to be randomized
+
+- This is because torch.tensor([1,2]).view(2,1).expand(2,3).view(-1) -> 111 222 (element-wise repeat)
+- but torch.tensor([1,2]).view(1,2).expand(3,2).view(-1) -> 12 12 12 (repeat as a group)
+
+#### but actually, even with 2, we can still implement GQA --- there is no requirement in GQA implementation that groups have to be adjacent (query) heads. 
+
+```python3
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MultiQueryAttention(nn.Module):
+    def __init__(self, d_model, n_head, n_group):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head = n_head
+        self.head_dim = self.d_model // self.n_head
+        assert self.d_model % self.n_head == 0
+        self.n_kv_heads = n_group
+        self.q_per_kv = self.n_head // self.n_kv_heads
+        assert self.n_head % self.n_kv_heads == 0
+
+        self.q = nn.Linear(d_model, d_model)
+        self.k = nn.Linear(d_model, self.n_kv_heads * self.head_dim)
+        self.v = nn.Linear(d_model, self.n_kv_heads * self.head_dim)
+        self.o = nn.Linear(d_model, d_model)
+
+    def forward(self, x, mask = None):
+        batch_size, seq_len, _ = x.shape
+
+        q = self.q(x).view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1,2) # shape = batch_size, n_head, seq_len, self.head_dim
+        k = self.k(x).view(batch_size, seq_len, self.n_kv_heads, 1, self.head_dim).expand(-1, -1, -1, self.q_per_kv, -1).view(batch_size, seq_len, -1, self.head_dim).transpose(1,2) # shape = batch_size, n_head, seq_len, self.head_dim
+        v = self.v(x).view(batch_size, seq_len, self.n_kv_heads, 1, self.head_dim).expand(-1, -1, -1, self.q_per_kv, -1).view(batch_size, seq_len, -1, self.head_dim).transpose(1,2) # shape = batch_size, n_head, seq_len, self.head_dim
+
+        attn_score = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+        if mask is not None:
+            attn_score = attn_score.masked_fill(mask == 0, float('-inf'))
+        attn_weights = F.softmax(attn_score, dim=-1)
+
+        out = torch.matmul(attn_weights, v) # shape = batch_size, n_head, seq_len, head_dim
+        out = out.transpose(1,2).contiguous().view(batch_size, seq_len, self.n_head * self.head_dim)
+
+        return self.o(out)
+
+        
+
+```
+
+
+
+
 
 ### 7. Transformer Encoder Layer
 Key components of encoder layers:
