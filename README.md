@@ -7,16 +7,16 @@ This repo is created as a playground for practicing transformer implementations.
 3. - [x] cross attention
 4. - [x] masked attention
 5. - [x] multi query attention
-6. - [ ] group query attention
+6. - [x] group query attention
 7. multi head latent attention
 8. - [x] encoder
 9. - [x] decoder
 10. decoder-only models
 11. encoder-only models
 12. encoder-decoder models
-13. positional encoding
+13. - [ ] positional encoding
 14. tokenization
-15. normalization
+15. - [ ] normalization
 16. sequence-prediction task
 17. classification task
 18. regression task
@@ -417,5 +417,85 @@ class DecoderLayer(nn.Module):
         return x
 
 ```
+
+### 9. Positional Encoding and Normalization
+
+#### Positional Encoding: simple PE
+```python3
+import torch
+import torch.nn as nn
+import math
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len = 5000):
+        super().__init__()
+        self.d_model = d_model
+        
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1) # shape max_len, 1
+        
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * 
+            (-math.log(10000.0) / d_model)
+        ) # shape: d_model/2, 
+
+        pe[:, 0::2] = torch.sin(position * div_term) # auto broadcast, shape max_len, d_model/2
+        pe[:, 1::2] = torch.cos(position * div_term)
+        
+        # register as buffer
+        self.register_buffer('pe', pe.unsqueeze(0))  # [1, max_len, d_model]
+
+    def forward(self, x):
+        seq_len = x.size(1)
+        return x + self.pe[:, :seq_len]
+
+```
+
+#### RotaryPositionalEncoding
+
+```python3
+import torch
+import torch.nn as nn
+
+class RotaryPositionalEmbeddings(nn.Module):
+    def __init__(self, dim, max_seq_len, base = 10000):
+        super().__init__()
+        self.dim = dim
+        self.max_seq_len = max_seq_len
+        self.base = base
+        self.rope_init()
+
+    def rope_init(self):
+        theta = 1.0 / (
+            self.base
+            ** (torch.arange(0, self.dim, 2)[: (self.dim // 2)].float() / self.dim)
+        )
+        self.register_buffer("theta", theta, persistent=False)
+        self.build_rope_cache(self.max_seq_len)
+
+
+```
+
+
+- Now seems we are ready to implement a full attention module as the one implemented in Pytorch official.
+
+
+```python3
+
+if self.pos_embeddings is not None:
+    q = self.pos_embeddings(q, input_pos=input_pos)
+
+if self.q_norm is not None:
+    q = self.q_norm(q)
+
+if self.pos_embeddings is not None:
+    k = self.pos_embeddings(k, input_pos=input_pos)
+
+if self.k_norm is not None:
+    k = self.k_norm(k)
+
+```
+
+
 
 
