@@ -27,7 +27,11 @@ This repo is created as a playground for practicing transformer implementations.
 23. acceleration techniques
 24. KV cache
 
-
+#### Some tips on PyTorch:
+Broadcasting rule: add dim 1 to the left side of low-dim tensors.
+- Each tensor has at least one dimension.
+- When iterating over the dimension sizes, starting at the trailing dimension, the dimension sizes must either be equal, one of them is 1, or one of them does not exist.
+- In-place ops: in-place operations do not allow the in-place tensor to change shape as a result of the broadcast.
 
 
 ### 1. SelfAttention Module
