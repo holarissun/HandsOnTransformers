@@ -65,9 +65,8 @@ class PositionalEmbedding(nn.Module):
         pe[:, 1::2] = torch.cos(freqs)
         return x + pe.unsqueeze(0) # [bs, seq_len, embed_dim]
     
-    
-import torch
-import torch.nn as nn
+
+# RoPE implementation v1
 
 class RotaryPositionalEmbeddings(nn.Module):
     def __init__(self, dim, max_seq_len, base = 10000):
@@ -83,7 +82,41 @@ class RotaryPositionalEmbeddings(nn.Module):
             ** (torch.arange(0, self.dim, 2)[: (self.dim // 2)].float() / self.dim)
         )
         self.register_buffer("theta", theta, persistent=False)
-        self.build_rope_cache(self.max_seq_len)
+        self.rotary_embeddings = torch.einsum("i,j->ij", torch.arange(self.max_seq_len).float(), self.theta)
+        self.cos = torch.cos(self.rotary_embeddings) # [max_seq_len, dim//2]
+        self.sin = torch.sin(self.rotary_embeddings) # [max_seq_len, dim//2]
+        
+    def forward(self, x):
+        # query, key: [bs, seq_len, dim]
+        # output: [bs, seq_len, dim]
+        seq_len = x.shape[1]
+        cos = self.cos[:seq_len, :].unsqueeze(0).unsqueeze(1) # [1, 1, seq_len, dim//2]
+        sin = self.sin[:seq_len, :].unsqueeze(0).unsqueeze(1) # [1, 1, seq_len, dim//2]
+        
+        def rotate_half(x):
+            x = x.reshape(*x.shape[:-1], -1, 2)  # paired by 2: (batch, heads, seq_len, dim//2, 2)
+            x1, x2 = x[..., 0], x[..., 1]
+            return torch.stack([-x2, x1], dim=-1).reshape(*x.shape[:-2], -1)  # (batch, heads, seq_len, dim)
+            # we start from [x1, x2, x3, x4] -> [-x2, x1, -x4, x3]
+            
+        # method 1
+        # cos shape [1, 1, seq_len, dim//2]
+        cos1 = cos.repeat_interleave(2, dim=-1) # cos1 shape [1, 1, seq_len, dim]
+        sin1 = sin.repeat_interleave(2, dim=-1) # sin1 shape [1, 1, seq_len, dim]
+        rope_x1 = x * cos1 + rotate_half(x) * sin1 # x shape batch, heads, seq_len, dim
+    
+        # method 2
+        x = x.reshape(*x.shape[:-1], -1, 2) # batch, heads, seq_len, dim//2, 2
+        rope_x2 = x * cos.unsqueeze(-1) + rotate_half(x) * sin.unsqueeze(-1) # reshaped cos: [1, 1, seq_len, dim//2, 1]
+        
+        rope_x = rope_x1 # or rope_x2
+        return rope_x
+    
+# RoPE implementation v2
+        
+        
+       
+        
 
 
 aa = torch.rand(256)
