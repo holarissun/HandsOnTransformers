@@ -552,3 +552,65 @@ class RMSNorm(nn.Module):
         return self.weight * x / (rms + self.eps)
 
 ```
+
+- RMSNorm in Transformer models:
+```python3
+
+class TransformerBlock(nn.Module):
+    def __init__(self, d_model, n_head):
+        super().__init__()
+        self.attention = MultiHeadAttention(d_model, n_head)
+        self.norm1 = RMSNorm(d_model)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_model * 4)
+            nn.GELU()
+            nn.Linear(d_model * 4, d_model)
+        )
+        self.norm2 = RMSNorm(d_model)
+    
+    def forward(self, x):
+        # post-norm implementation
+        attn_out, attn_w = self.attention(x)
+        x = x + attn_out
+        x = self.norm1(x)
+
+        ffn_out = self.ffn(x)
+        x = x + ffn_out
+        x = self.norm2(x)
+
+        return x
+    
+    def forward_prenorm(self, x):
+        attn_out, attn_w = self.attention(self.norm1(x))
+        x = x + attn_out
+
+        ffn_out = self.ffn(self.norm2(x))
+        x = x + ffn_out
+        return x
+
+```
+
+
+#### LayerNorm 
+
+```python3
+import torch
+import torch.nn as nn
+
+class LayerNorm(nn.Module):
+    def __init__(self, d_model, eps=1e-8):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.ones(d_model))
+        self.beta = nn.Parameter(torch.zeros(d_model))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(dim=-1, keepdim = True)
+        var = x.var(dim = -1, keepdim = True)
+        x_norm = (x - mean) / torch.sqrt(var + self.eps)
+        return x_norm * self.gamma + self.beta
+
+```
+
+
+### 11. GELU
