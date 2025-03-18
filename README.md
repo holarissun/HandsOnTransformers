@@ -613,4 +613,23 @@ class LayerNorm(nn.Module):
 ```
 
 
-### 11. GELU
+### 11. KV Cache
+
+```python3
+import torch
+import torch.nn as nn
+
+class KV_cache:
+    def __init__(self, batch_size, n_head, head_dim):
+        self.k_cache = torch.tensor(batch_size, n_head, 0, head_dim)
+        self.v_cache = torch.tensor(batch_size, n_head, 0, head_dim)
+    
+    def update(self, k, v):
+        self.k_cache = torch.cat([self.k_cache, k], dim=2)
+        self.v_cache = torch.cat([self.v_cache, v], dim=2)
+        return self.k_cache, self.v_cache
+
+
+
+
+```
