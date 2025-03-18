@@ -14,7 +14,7 @@ This repo is created as a playground for practicing transformer implementations.
 10. decoder-only models
 11. encoder-only models
 12. encoder-decoder models
-13. - [ ] positional encoding
+13. - [x] positional encoding
 14. tokenization
 15. - [ ] normalization
 16. sequence-prediction task
@@ -25,7 +25,7 @@ This repo is created as a playground for practicing transformer implementations.
 21. MoE
 22. other applications?
 23. acceleration techniques
-24. KV cache
+24. - [ ] KV cache
 
 #### Some tips on PyTorch:
 Broadcasting rule: add dim 1 to the left side of low-dim tensors.
@@ -461,6 +461,7 @@ class PositionalEncoding(nn.Module):
 import torch
 import torch.nn as nn
 
+
 class RotaryPositionalEmbeddings(nn.Module):
     def __init__(self, dim, max_seq_len, base = 10000):
         super().__init__()
@@ -475,8 +476,36 @@ class RotaryPositionalEmbeddings(nn.Module):
             ** (torch.arange(0, self.dim, 2)[: (self.dim // 2)].float() / self.dim)
         )
         self.register_buffer("theta", theta, persistent=False)
-        self.build_rope_cache(self.max_seq_len)
-
+        self.rotary_embeddings = torch.einsum("i,j->ij", torch.arange(self.max_seq_len).float(), self.theta)
+        self.cos = torch.cos(self.rotary_embeddings) # [max_seq_len, dim//2]
+        self.sin = torch.sin(self.rotary_embeddings) # [max_seq_len, dim//2]
+        
+    def forward(self, x):
+        # query, key: [bs, seq_len, dim]
+        # output: [bs, seq_len, dim]
+        seq_len = x.shape[1]
+        cos = self.cos[:seq_len, :].unsqueeze(0).unsqueeze(1) # [1, 1, seq_len, dim//2]
+        sin = self.sin[:seq_len, :].unsqueeze(0).unsqueeze(1) # [1, 1, seq_len, dim//2]
+        
+        def rotate_half(x):
+            x = x.reshape(*x.shape[:-1], -1, 2)  # paired by 2: (batch, heads, seq_len, dim//2, 2)
+            x1, x2 = x[..., 0], x[..., 1]
+            return torch.stack([-x2, x1], dim=-1).reshape(*x.shape[:-2], -1)  # (batch, heads, seq_len, dim)
+            # we start from [x1, x2, x3, x4] -> [-x2, x1, -x4, x3]
+            
+        # method 1
+        # cos shape [1, 1, seq_len, dim//2]
+        cos1 = cos.repeat_interleave(2, dim=-1) # cos1 shape [1, 1, seq_len, dim]
+        sin1 = sin.repeat_interleave(2, dim=-1) # sin1 shape [1, 1, seq_len, dim]
+        rope_x1 = x * cos1 + rotate_half(x) * sin1 # x shape batch, heads, seq_len, dim
+    
+        # method 2
+        x = x.reshape(*x.shape[:-1], -1, 2) # batch, heads, seq_len, dim//2, 2
+        rope_x2 = x * cos.unsqueeze(-1) + rotate_half(x) * sin.unsqueeze(-1) # reshaped cos: [1, 1, seq_len, dim//2, 1]
+        
+        rope_x = rope_x1 # or rope_x2
+        return rope_x
+    
     
   
 ```
