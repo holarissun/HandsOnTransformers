@@ -16,7 +16,7 @@ This repo is created as a playground for practicing transformer implementations.
 12. encoder-decoder models
 13. - [x] positional encoding
 14. tokenization
-15. - [ ] normalization
+15. - [x] normalization
 16. sequence-prediction task
 17. classification task
 18. regression task
@@ -533,3 +533,22 @@ if self.k_norm is not None:
 
 
 
+### 10. Normalization
+
+#### RMS Norm
+
+```python3
+
+import torch
+import torch.nn as nn
+
+class RMSNorm(nn.Module):
+    def __init__(self, d_model, eps=1e-8):
+        super().__init__()
+        self.weight = nn.Parameters(torch.ones(d_model))
+        self.eps = eps
+    def forward(self, x):
+        rms = x.pow(2).mean(-1, keepdim = True).sqrt()
+        return self.weight * x / (rms + self.eps)
+
+```
