@@ -628,6 +628,121 @@ class KV_cache:
         self.k_cache = torch.cat([self.k_cache, k], dim=2)
         self.v_cache = torch.cat([self.v_cache, v], dim=2)
         return self.k_cache, self.v_cache
+    
+    def reset(self):
+        self.k_cache = torch.tensor(batch_size, n_head, 0, head_dim)
+        self.v_cache = torch.tensor(batch_size, n_head, 0, head_dim)
+
+```
+
+
+```python3
+# define transformer decoder layer with a KV Cache
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_head, is_causal_LM=True):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head = n_head
+        assert self.d_model % self.n_head == 0
+        self.head_dim = self.d_model // self.n_head
+        self.is_causal_LM = is_causal_LM
+        self.q = nn.Linear(d_model, d_model)
+        self.k = nn.Linear(d_model, d_model)
+        self.v = nn.Linear(d_model, d_model)
+        self.o = nn.Linear(d_model, d_model)
+
+    def forward(self, x, mask = None):
+        B, T, C = x.shape
+
+        q = self.q(x)
+        k = self.k(x)
+        v = self.v(x)
+
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+        k = k.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+        v = v.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+
+        attn_score = torch.matmul(q, k.transpose(-2, -1)) * self.head_dim**-0.5
+        
+        if mask is not None:
+            attn_score = attn_score.masked_fill(mask == 0, float('-inf'))
+
+        attn_w = F.softmax(attn_score, dim=-1)
+        o_in = torch.matmul(attn_w, v)
+        o_in = o_in.transpose(1,2).contiguous().view(B, T, C)
+        out = self.o(o_in)
+        return out
+
+    def generate(self, x, kv_cache = None, mask = None)
+        B, T, C = x.shape
+
+        if kv_cache == None:
+            # generate from scratch
+            q = self.q(x)
+            k = self.k(x)
+            v = self.v(x)
+
+            q = q.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+            k = k.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+            v = v.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+            
+        else:
+            new_x = x[:, -1, :]
+            q = self.q(new_x)
+            k = self.k(new_x)
+            v = self.v(new_x)
+
+            q = q.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+            k = k.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+            v = v.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+
+            kv_cache.update(k, v)
+
+            k = kv_cache.k_cache
+            v = kv_cache.v_cache
+        
+        attn_score = torch.matmul(q, k.transpose(-2, -1)) * self.head_dim**-0.5
+        
+        if mask is not None:
+            attn_score = attn_score.masked_fill(mask == 0, float('-inf'))
+
+        attn_w = F.softmax(attn_score, dim=-1)
+        o_in = torch.matmul(attn_w, v)
+        o_in = o_in.transpose(1,2).contiguous().view(B, T, C)
+        out = self.o(o_in)
+        return out
+        
+
+
+
+
+class DecoderLayer(nn.Module):
+    def __init__(self, d_model, n_head, ff_dim, dropout = 0.1):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, n_head)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, ff_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_dim, d_model)
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.k_cache = torch.tensor(1,)
+        self.v_cache = None
+
+    def forward(self, x, mask = None, k_cache, v_cache):
+        attn_out, new_k, new_v = self.self_attn(x, mask = mask, k_cache = self.k_cache, v_cache = self.v_cache)
+        self.k_cache = 
+        x = self.norm1(x + self.dropout1(attn_out))
+
+        ffn_out = self.ffn(x)
+        x = self.norm2(x + self.dropout2(ffn_out))
+        return x
+
 
 
 
